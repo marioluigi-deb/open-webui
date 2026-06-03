@@ -3,68 +3,92 @@
 
 	export let value = '';
 	export let placeholder = '';
+	export let rows = 1;
+	export let minSize = null;
+	export let maxSize = null;
+	export let required = false;
+	export let readonly = false;
 	export let className =
-		'w-full rounded-lg px-3 py-2 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-none resize-none h-full';
+		'w-full rounded-lg px-3.5 py-2 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden  h-full';
+	export let ariaLabel = null;
 
-	export let onKeydown: Function = () => {};
+	export let onInput = () => {};
+	export let onBlur = () => {};
 
 	let textareaElement;
-
-	$: if (textareaElement) {
-		if (textareaElement.innerText !== value && value !== '') {
-			textareaElement.innerText = value ?? '';
-		}
-	}
 
 	// Adjust height on mount and after setting the element.
 	onMount(async () => {
 		await tick();
+		resize();
+
+		requestAnimationFrame(() => {
+			// setInterveal to cehck until textareaElement is set
+			const interval = setInterval(() => {
+				if (textareaElement) {
+					clearInterval(interval);
+					resize();
+				}
+			}, 100);
+		});
 	});
 
-	// Handle paste event to ensure only plaintext is pasted
-	function handlePaste(event: ClipboardEvent) {
-		event.preventDefault(); // Prevent the default paste action
-		const clipboardData = event.clipboardData?.getData('text/plain'); // Get plaintext from clipboard
+	const resize = () => {
+		if (textareaElement) {
+			// Find all ancestors that currently have an active scroll offset.
+			// This is extremely fast because reading `scrollTop` on a clean layout doesn't trigger reflow,
+			// and it makes the fix 100% robust without relying on hardcoded CSS classes.
+			let activeScrollParents = [];
+			let p = textareaElement.parentNode;
+			while (p && p !== document.body) {
+				if (p instanceof HTMLElement && p.scrollTop > 0) {
+					activeScrollParents.push({ el: p, top: p.scrollTop });
+				}
+				p = p.parentNode;
+			}
+			const windowScrollY = window.scrollY;
 
-		// Insert plaintext into the textarea
-		document.execCommand('insertText', false, clipboardData);
-	}
+			textareaElement.style.height = '';
+
+			let height = textareaElement.scrollHeight;
+			if (maxSize && height > maxSize) {
+				height = maxSize;
+			}
+			if (minSize && height < minSize) {
+				height = minSize;
+			}
+
+			textareaElement.style.height = `${height}px`;
+
+			// Only restore scroll for elements that were actually scrolled.
+			// This prevents layout thrashing that happens if we blindly set `.scrollTop` on every parent.
+			activeScrollParents.forEach((p) => {
+				if (p.el.scrollTop !== p.top) p.el.scrollTop = p.top;
+			});
+			if (window.scrollY !== windowScrollY) {
+				window.scrollTo(window.scrollX, windowScrollY);
+			}
+		}
+	};
 </script>
 
-<div
-	contenteditable="true"
+<textarea
 	bind:this={textareaElement}
-	class="{className} whitespace-pre-wrap relative {value
-		? !value.trim()
-			? 'placeholder'
-			: ''
-		: 'placeholder'}"
-	style="field-sizing: content; -moz-user-select: text !important;"
-	on:input={() => {
-		const text = textareaElement.innerText;
-		if (text === '\n') {
-			value = '';
-			return;
-		}
+	bind:value
+	{placeholder}
+	aria-label={ariaLabel || placeholder}
+	class={className}
+	style="field-sizing: content;"
+	{rows}
+	{required}
+	{readonly}
+	on:input={(e) => {
+		resize();
 
-		value = text;
+		onInput(e);
 	}}
-	on:paste={handlePaste}
-	on:keydown={onKeydown}
-	data-placeholder={placeholder}
+	on:focus={() => {
+		resize();
+	}}
+	on:blur={onBlur}
 />
-
-<style>
-	.placeholder::before {
-		/* abolute */
-		position: absolute;
-		content: attr(data-placeholder);
-		color: #adb5bd;
-		overflow: hidden;
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 1;
-		pointer-events: none;
-		touch-action: none;
-	}
-</style>
